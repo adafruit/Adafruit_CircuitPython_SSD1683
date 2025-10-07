@@ -22,16 +22,10 @@ Table of Contents
     api
 
 .. toctree::
-    :caption: Tutorials
-
-.. todo:: Add any Learn guide links here. If there are none, then simply delete this todo and leave
-    the toctree above for use later.
-
-.. toctree::
     :caption: Related Products
 
-.. todo:: Add any product links here. If there are none, then simply delete this todo and leave
-    the toctree above for use later.
+    4.2" 300x400 Monochrome or 4-Gray eInk <https://www.adafruit.com/product/6381>
+    4.2" 300x400 Tri-Color eInk <https://www.adafruit.com/product/6382>
 
 .. toctree::
     :caption: Other Links
