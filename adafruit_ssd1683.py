@@ -14,11 +14,6 @@ CircuitPython `displayio` driver for SSD1683-based ePaper displays
 Implementation Notes
 --------------------
 
-**Hardware:**
-
-.. todo:: Add links to any specific hardware product page(s), or category page(s).
-  Use unordered list & hyperlink rST inline format: "* `Link Text <url>`_"
-
 **Software and Dependencies:**
 
 * Adafruit CircuitPython firmware for the supported boards:
@@ -45,7 +40,7 @@ _START_SEQUENCE = (
     b"\x3c\x00\x01\x05"  # border waveform control
     b"\x11\x00\x01\x03"  # Ram data entry mode
     b"\x18\x00\x01\x80"  # temp control
-    b"\x01\x00\x03\x00\x00\x00" # driver output control
+    b"\x01\x00\x03\x00\x00\x00"  # driver output control
 )
 
 _DISPLAY_UPDATE_MODE = b"\x22\x00\x01\xf7"  # display update mode
@@ -70,9 +65,7 @@ class SSD1683(EPaperDisplay):
           Display rotation
     """
 
-    def __init__(
-        self, bus: FourWire, custom_lut: bytes = b"", **kwargs
-    ) -> None:
+    def __init__(self, bus: FourWire, custom_lut: bytes = b"", **kwargs) -> None:
         stop_sequence = bytearray(_STOP_SEQUENCE)
         try:
             bus.reset()
@@ -99,8 +92,8 @@ class SSD1683(EPaperDisplay):
         if "highlight_color" in kwargs:
             # Switch refresh mode
             display_update_mode[-1] = 0xF7
-        start_sequence[len(_START_SEQUENCE)-3] = (width - 1) & 0xFF
-        start_sequence[len(_START_SEQUENCE)-2] = ((width - 1) >> 8) & 0xFF
+        start_sequence[len(_START_SEQUENCE) - 3] = (width - 1) & 0xFF
+        start_sequence[len(_START_SEQUENCE) - 2] = ((width - 1) >> 8) & 0xFF
 
         super().__init__(
             bus,

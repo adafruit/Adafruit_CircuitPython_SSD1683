@@ -16,22 +16,23 @@ import adafruit_ssd1683
 
 displayio.release_displays()
 
-# This pinout works on a MagTag with the newer screen and may need to be altered for other boards.
-spi = busio.SPI(board.EPD_SCK, board.EPD_MOSI)  # Uses SCK and MOSI
-epd_cs = board.EPD_CS
-epd_dc = board.EPD_DC
-epd_reset = board.EPD_RESET
-epd_busy = board.EPD_BUSY
+if "EPD_MOSI" in dir(board):  # Feather RP2040 ThinkInk
+    spi = busio.SPI(board.EPD_SCK, MOSI=board.EPD_MOSI, MISO=None)
+    epd_cs = board.EPD_CS
+    epd_dc = board.EPD_DC
+    epd_reset = board.EPD_RESET
+    epd_busy = board.EPD_BUSY
+else:
+    spi = board.SPI()  # Uses SCK and MOSI
+    epd_cs = board.D9
+    epd_dc = board.D10
+    epd_reset = board.D8  # Set to None for FeatherWing
+    epd_busy = board.D7  # Set to None for FeatherWing
 
 display_bus = FourWire(spi, command=epd_dc, chip_select=epd_cs, reset=epd_reset, baudrate=1000000)
 time.sleep(1)
 
-display = adafruit_ssd1683.SSD1683(
-    display_bus,
-    width=400,
-    height=300,
-    busy_pin=epd_busy
-)
+display = adafruit_ssd1683.SSD1683(display_bus, width=400, height=300, busy_pin=epd_busy)
 
 g = displayio.Group()
 
