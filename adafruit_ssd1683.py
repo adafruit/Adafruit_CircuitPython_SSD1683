@@ -71,17 +71,18 @@ _STOP_SEQUENCE = b"\x10\x80\x01\x01\x64"  # Deep Sleep
 # appear in the default ``_START_SEQUENCE`` with mono-waveform values; the
 # panel honours the last write so re-issuing them here is intentional.
 THINKINK_420_GRAYSCALE4_MFGN_INIT = (
-    b"\x3c\x00\x01\x03"          # Border waveform control (greyscale value)
+    b"\x3c\x00\x01\x03"  # Border waveform control (greyscale value)
     b"\x0c\x00\x04\x8b\x9c\xa4\x0f"  # Booster soft-start
-    b"\x18\x00\x01\x07"          # End option (override mono 0x80)
-    b"\x03\x00\x01\x17"          # Gate driving voltage
+    b"\x18\x00\x01\x07"  # End option (override mono 0x80)
+    b"\x03\x00\x01\x17"  # Gate driving voltage
     b"\x04\x00\x03\x41\xa8\x32"  # Source driving voltage
-    b"\x2c\x00\x01\x30"          # Write VCOM register
+    b"\x2c\x00\x01\x30"  # Write VCOM register
 )
 
 # 227-byte greyscale waveform LUT verbatim from
 # ``Adafruit_EPD/src/panels/ThinkInk_420_Grayscale4_MFGN.h``
 # (``ti_420mfgn_gray4_lut_code``). Pass to ``SSD1683(custom_lut=...)``.
+# fmt: off
 THINKINK_420_GRAYSCALE4_MFGN_LUT = bytes((
     0x01, 0x0A, 0x1B, 0x0F, 0x03, 0x01, 0x01, 0x05, 0x0A, 0x01,
     0x0A, 0x01, 0x01, 0x01, 0x05, 0x08, 0x03, 0x02, 0x04, 0x01, 0x01, 0x01,
@@ -104,6 +105,7 @@ THINKINK_420_GRAYSCALE4_MFGN_LUT = bytes((
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00,
     0x00,
 ))
+# fmt: on
 assert len(THINKINK_420_GRAYSCALE4_MFGN_LUT) == 227
 
 
@@ -150,9 +152,7 @@ class SSD1683(EPaperDisplay):
             # any 4-level greyscale rendering.
             display_update_mode[-1] = 0xCF
 
-        start_sequence = bytearray(
-            _START_SEQUENCE + extra_init + load_lut + display_update_mode
-        )
+        start_sequence = bytearray(_START_SEQUENCE + extra_init + load_lut + display_update_mode)
 
         width = kwargs["width"]
         height = kwargs["height"]
@@ -176,7 +176,9 @@ class SSD1683(EPaperDisplay):
         # and *luma bit 6* on pass 1 (the color-RAM command), which gives
         # the opposite mid-tone bits. Swap the two commands when
         # ``grayscale=True`` so the LUT sees the bit pair it expects;
-        # white (1,1) and black (0,0) are unaffected.
+        # white (1,1) and black (0,0) are unaffected. See
+        # ``docs/grayscale4-lut-followup.md`` for an alternative fix
+        # path (modifying the LUT data) that needs further work.
         write_black = 0x24
         write_color = 0x26
         if kwargs.get("grayscale"):
