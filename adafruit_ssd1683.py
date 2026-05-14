@@ -48,6 +48,75 @@ _DISPLAY_UPDATE_MODE = b"\x22\x00\x01\xf7"  # display update mode
 _STOP_SEQUENCE = b"\x10\x80\x01\x01\x64"  # Deep Sleep
 
 
+# Panel-specific extra init bytes and waveform LUTs, ported from
+# Adafruit_EPD's Arduino panel headers. These let SSD1683 drive 4-level
+# greyscale (``grayscale=True``) on panels whose factory LUT is a mono
+# waveform — without the panel-specific waveform LUT loaded via 0x32 plus
+# the extra ``Display Mode 2`` bit (0xCF) in command 0x22 the chip just
+# runs the mono waveform with both RAMs active and collapses the four
+# luma levels to two.
+#
+# Use as::
+#
+#     SSD1683(
+#         bus, width=400, height=300, busy_pin=epd_busy,
+#         grayscale=True,
+#         extra_init=THINKINK_420_GRAYSCALE4_MFGN_INIT,
+#         custom_lut=THINKINK_420_GRAYSCALE4_MFGN_LUT,
+#     )
+
+# Extra start-sequence commands beyond the chip default. Each entry is
+# ``cmd, count_hi, count_lo, *data`` (the same byte-packed form as
+# ``_START_SEQUENCE``). Three of these (border 0x3C, end-option 0x18) also
+# appear in the default ``_START_SEQUENCE`` with mono-waveform values; the
+# panel honours the last write so re-issuing them here is intentional.
+THINKINK_420_GRAYSCALE4_MFGN_INIT = (
+    b"\x3c\x00\x01\x03"  # Border waveform control (greyscale value)
+    b"\x0c\x00\x04\x8b\x9c\xa4\x0f"  # Booster soft-start
+    b"\x18\x00\x01\x07"  # End option (override mono 0x80)
+    b"\x03\x00\x01\x17"  # Gate driving voltage
+    b"\x04\x00\x03\x41\xa8\x32"  # Source driving voltage
+    b"\x2c\x00\x01\x30"  # Write VCOM register
+)
+
+# 227-byte greyscale waveform LUT adapted from
+# ``Adafruit_EPD/src/panels/ThinkInk_420_Grayscale4_MFGN.h``
+# (``ti_420mfgn_gray4_lut_code``). The SSD1683 datasheet's black/white
+# waveform layout orders the five 42-byte LUTs as LUTC, LUTWW, LUTBW,
+# LUTWB, LUTBB, followed by shared FR/XON bytes. The Arduino LUT's LUTBW
+# and LUTWB blocks are swapped here so displayio's canonical B/W RAM write
+# commands produce monotonic 4-level greyscale without driver-level command
+# remapping. Pass to ``SSD1683(custom_lut=...)``.
+# fmt: off
+THINKINK_420_GRAYSCALE4_MFGN_LUT = bytes((
+    0x01, 0x0A, 0x1B, 0x0F, 0x03, 0x01, 0x01, 0x05, 0x0A, 0x01,
+    0x0A, 0x01, 0x01, 0x01, 0x05, 0x08, 0x03, 0x02, 0x04, 0x01,
+    0x01, 0x01, 0x04, 0x04, 0x02, 0x00, 0x01, 0x01, 0x01, 0x00,
+    0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0x01, 0x01, 0x0A, 0x1B, 0x0F, 0x03, 0x01, 0x01, 0x05,
+    0x4A, 0x01, 0x8A, 0x01, 0x01, 0x01, 0x05, 0x48, 0x03, 0x82,
+    0x84, 0x01, 0x01, 0x01, 0x84, 0x84, 0x82, 0x00, 0x01, 0x01,
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00,
+    0x00, 0x00, 0x01, 0x01, 0x01, 0x8A, 0x1B, 0x8F, 0x03, 0x01,
+    0x01, 0x05, 0x4A, 0x01, 0x8A, 0x01, 0x01, 0x01, 0x05, 0x48,
+    0x83, 0x02, 0x04, 0x01, 0x01, 0x01, 0x04, 0x04, 0x02, 0x00,
+    0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x0A, 0x1B, 0x8F,
+    0x03, 0x01, 0x01, 0x05, 0x4A, 0x01, 0x8A, 0x01, 0x01, 0x01,
+    0x05, 0x48, 0x83, 0x82, 0x04, 0x01, 0x01, 0x01, 0x04, 0x04,
+    0x02, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01,
+    0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x8A,
+    0x9B, 0x8F, 0x03, 0x01, 0x01, 0x05, 0x4A, 0x01, 0x8A, 0x01,
+    0x01, 0x01, 0x05, 0x48, 0x03, 0x42, 0x04, 0x01, 0x01, 0x01,
+    0x04, 0x04, 0x42, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+))
+# fmt: on
+assert len(THINKINK_420_GRAYSCALE4_MFGN_LUT) == 227
+
+
 # pylint: disable=too-few-public-methods
 class SSD1683(EPaperDisplay):
     r"""SSD1683 driver
@@ -65,7 +134,13 @@ class SSD1683(EPaperDisplay):
           Display rotation
     """
 
-    def __init__(self, bus: FourWire, custom_lut: bytes = b"", **kwargs) -> None:
+    def __init__(
+        self,
+        bus: FourWire,
+        custom_lut: bytes = b"",
+        extra_init: bytes = b"",
+        **kwargs,
+    ) -> None:
         stop_sequence = bytearray(_STOP_SEQUENCE)
         try:
             bus.reset()
@@ -77,9 +152,15 @@ class SSD1683(EPaperDisplay):
         display_update_mode = bytearray(_DISPLAY_UPDATE_MODE)
         if custom_lut:
             load_lut = b"\x32" + len(custom_lut).to_bytes(2) + custom_lut
-            display_update_mode[-1] = 0xC7
+            # Display Update Control 2 = 0xCF: enable clock + analog, run
+            # the *Display Mode 2* refresh path (bit 3) so the LUT we just
+            # pushed via 0x32 is the one driving the panel. Previously this
+            # set 0xC7 which is Display Mode 1 — i.e. the chip's mono
+            # waveform, which silently ignores the custom LUT and prevents
+            # any 4-level greyscale rendering.
+            display_update_mode[-1] = 0xCF
 
-        start_sequence = bytearray(_START_SEQUENCE + load_lut + display_update_mode)
+        start_sequence = bytearray(_START_SEQUENCE + extra_init + load_lut + display_update_mode)
 
         width = kwargs["width"]
         height = kwargs["height"]
