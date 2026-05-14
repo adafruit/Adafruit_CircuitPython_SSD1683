@@ -1,81 +1,96 @@
-# Greyscale4 LUT vs RAM-command swap — follow-up notes
+# Greyscale4 LUT follow-up notes
 
-Background for the conditional `write_black_ram_command` ↔ `write_color_ram_command` swap that fires when `grayscale=True` is passed to `SSD1683`. The swap is the minimal fix that gets four monotonic grey levels rendering on the ThinkInk_420_Grayscale4_MFGN panel; an alternative fix — modifying the panel-specific LUT data so no command swap is needed — was considered and is **not** implemented because the LUT-side experiment we ran was inconclusive. This doc records what we tried so the next person doesn't have to start from scratch.
+Background for the 4-level greyscale support on the
+ThinkInk_420_Grayscale4_MFGN panel.
+
+The first draft of this PR used a conditional RAM-command swap when
+`grayscale=True` was passed to `SSD1683`: displayio pass 0 was written with
+command `0x26` and pass 1 with command `0x24`. That worked on hardware, but it
+put a panel-specific LUT quirk into the generic SSD1683 command setup.
+
+The current approach keeps the SSD1683 RAM commands canonical:
+
+- `write_black_ram_command = 0x24`
+- `write_color_ram_command = 0x26`
+
+and instead fixes the panel-specific waveform data in
+`THINKINK_420_GRAYSCALE4_MFGN_LUT`.
 
 ## What displayio sends
 
-Blinka `displayio` (and the firmware C version) implements `grayscale=True` in `EPaperDisplay._refresh_area` as a two-pass write of bit 7 then bit 6 of the source-pixel luma:
+Blinka `displayio` and CircuitPython firmware implement `grayscale=True` in
+`EPaperDisplay._refresh_area` as a two-pass write of bit 7 then bit 6 of the
+source-pixel luma:
 
-- pass 0 → `write_black_ram_command` (default `0x24`), bit 7 of luma
-- pass 1 → `write_color_ram_command` (default `0x26`), bit 6 of luma
+- pass 0: `write_black_ram_command` (`0x24`), bit 7 of luma
+- pass 1: `write_color_ram_command` (`0x26`), bit 6 of luma
 
-So for each pixel the chip sees a `(B=luma>>7&1, R=luma>>6&1)` bit pair:
+For a monotonic four-entry greyscale palette, the SSD1683 receives:
 
-| RGB888 | luma | (B, R) sent |
+| RGB888 | luma | (B/W RAM, R RAM) |
 | --- | --- | --- |
 | `0xFFFFFF` | 255 | (1, 1) |
 | `0xAAAAAA` | 170 | (1, 0) |
-| `0x555555` | 85  | (0, 1) |
-| `0x000000` | 0   | (0, 0) |
+| `0x555555` | 85 | (0, 1) |
+| `0x000000` | 0 | (0, 0) |
 
-## What the panel's LUT expects
+## What the SSD1683 datasheet says
 
-`Adafruit_EPD/src/panels/ThinkInk_420_Grayscale4_MFGN.h` declares `setBlackBuffer(0, true) + setColorBuffer(1, true)` and `layer_colors[]` as `WHITE=0b00, BLACK=0b11, LIGHT=0b01, DARK=0b10`. After the inverts that resolves to RAM bit pairs:
+SSD1683 Table 6-5, "RAM bit and LUT mapping for black/white display", maps the
+two RAM bits to black/white waveform slots:
 
-| Logical level | (B_RAM, R_RAM) |
+| R RAM | B/W RAM | Image color | LUT |
+| --- | --- | --- | --- |
+| 0 | 0 | Black | `LUTBB` |
+| 0 | 1 | White | `LUTWB` |
+| 1 | 0 | Black | `LUTBW = LUTBB` |
+| 1 | 1 | White | `LUTWW = LUTWB` |
+
+SSD1683 command `0x32` writes the 227-byte LUT register. Figure 6-7,
+"Waveform Setting format for black/white mode", lays out those bytes as five
+42-byte LUT blocks followed by shared frame-rate / XON data:
+
+| Byte range | Slot |
 | --- | --- |
-| WHITE | (1, 1) |
-| LIGHT | (0, 1) |
-| DARK  | (1, 0) |
-| BLACK | (0, 0) |
+| `0..41` | `LUTC` |
+| `42..83` | `LUTWW` |
+| `84..125` | `LUTBW` |
+| `126..167` | `LUTWB` |
+| `168..209` | `LUTBB` |
+| `210..226` | shared `FR` / `XON` bytes |
 
-i.e. the lighter mid-tone is `(0, 1)` and the darker mid-tone is `(1, 0)`, the **opposite** of what `displayio` produces from a monotonic luma palette.
+That block order is the important correction. The failed draft experiment
+swapped bytes `42..83` with `84..125`, which is `LUTWW` <-> `LUTBW`. That
+renamed a white transition as one of the mid-tone transitions, so the visual
+result moved white into the wrong band.
 
-White and black are at the diagonal so they line up. Mid-tones are mismatched.
+## Current LUT edit
 
-## Two ways to bridge the gap
+The current `THINKINK_420_GRAYSCALE4_MFGN_LUT` starts from the Arduino
+`Adafruit_EPD/src/panels/ThinkInk_420_Grayscale4_MFGN.h`
+`ti_420mfgn_gray4_lut_code` data and swaps only the two black/white mid-tone
+transition blocks:
 
-1. **RAM-command swap (current)** — when `grayscale=True`, pass `write_black_ram_command=0x26, write_color_ram_command=0x24` to `EPaperDisplay`. This routes displayio's pass-0 bits (luma bit 7) into the panel's "color" RAM and its pass-1 bits (luma bit 6) into the panel's "black" RAM, i.e. it inverts the bit-pair ordering for the LUT. Verified end-to-end on hardware; produces monotonic four levels.
+- original bytes `84..125` (`LUTBW`) move to `126..167`
+- original bytes `126..167` (`LUTWB`) move to `84..125`
 
-2. **LUT data swap (future)** — modify `THINKINK_420_GRAYSCALE4_MFGN_LUT` so that `(B=1, R=0)` lights the lighter mid-tone and `(B=0, R=1)` lights the darker one. Then the LUT matches displayio's natural bit ordering and option 1's swap goes away.
+The `LUTC`, `LUTWW`, `LUTBB`, and shared `FR` / `XON` bytes are left unchanged.
+The LUT remains 227 bytes.
 
-The second option is structurally cleaner — it keeps the SSD1683 driver's command kwargs at their canonical values and pushes the panel-specific quirk into the panel-specific data — so it would be the preferred fix if the LUT can be re-derived correctly.
+With that panel-specific LUT correction, displayio can keep its natural pass
+ordering and `SSD1683` can keep the standard RAM write commands.
 
-## What we tried for option 2
+## Hardware check
 
-Visually inspecting the 227-byte LUT, it looks like five repeating sub-blocks. Header markers (`0x?A, 0x1B/0x9B, 0x?F`) appear at byte offsets 0, 42, 84, 126 and 168, suggesting four 42-byte blocks plus a 59-byte trailing block. We hypothesised those blocks were the per-level voltage waveforms for `(B,R)=(0,0)/(0,1)/(1,0)/(1,1)`, addressed by `(B<<1)|R`.
+The required hardware acceptance test is:
 
-Under that hypothesis, swapping bytes `42..83` ↔ `84..125` should swap LIGHT and DARK rendering. We tested it on a Pi e-Ink Bonnet driving the MFGN panel:
+1. Run `examples/4_2_inch_400x300_grayscale.py` on the
+   ThinkInk_420_Grayscale4_MFGN panel.
+2. Confirm the four horizontal bands render as white, light grey, dark grey,
+   black, in that order.
+3. Confirm the driver is using canonical commands `0x24` for B/W RAM and
+   `0x26` for R RAM.
 
-- Original LUT, no command swap: `WHITE → DARK → LIGHT → BLACK` (the bug we're trying to fix).
-- LUT bytes 42..83 ↔ 84..125 swapped, no command swap: `LIGHT → DARK → WHITE → BLACK` — *worse*. WHITE moved from band 0 to band 2.
-- Original LUT, command swap on: `WHITE → LIGHT → DARK → BLACK` (correct).
-
-So the simple "5 contiguous sections, addressed by bit pair" model is wrong. The SSD168x greyscale4 LUT slots actually hold source-driver waveforms for the BB/BW/WB/WW *transitions* (plus a VCOM slot); the 4-level mapping emerges from the interaction of voltage-selection bits, per-phase frame counts, and per-phase repeat counts spread across the whole 227 bytes. Rearranging just two voltage blocks is not equivalent to renaming two levels.
-
-The single-pass test wasn't exhaustive — we didn't try swapping different ranges, didn't swap the trailing phase/repeat bytes alongside the voltage blocks, and didn't sweep block boundaries. So treat the result as "the obvious two-section swap doesn't work" rather than "no LUT-side fix is possible".
-
-## What would actually be needed
-
-To do option 2 properly someone needs to:
-
-1. Get the SSD1683 / SSD1681 datasheet section on the LUT byte layout for greyscale4 — specifically which bytes carry the source voltage selections, which carry frame counts (`TPxA`/`TPxB`), which carry phase repeats (`RPx`), and which carry the VCOM waveform.
-2. Identify all the bytes that participate in the rendering of `(B=1,R=0)` vs `(B=0,R=1)`, including any frame-count or repeat data, and produce a new `THINKINK_420_GRAYSCALE4_MFGN_LUT` constant where those positions are swapped.
-3. Verify on real hardware (the MFGN panel on a Pi e-Ink Bonnet works; refresh + visual swatch test is the standard check) that the four levels render monotonically without the command swap.
-4. If it works: drop the conditional `write_black_ram_command` / `write_color_ram_command` swap from `SSD1683.__init__` so the kwargs go back to `0x24` / `0x26` unconditionally.
-
-Cross-check the result against the other ThinkInk panels in `Adafruit_EPD/src/panels/`:
-
-- `ThinkInk_154_Grayscale4_M05.h`
-- `ThinkInk_154_Grayscale4_T8.h`
-- `ThinkInk_213_Grayscale4_MFGN.h`
-- `ThinkInk_213_Grayscale4_T5.h`
-- `ThinkInk_266_Grayscale4_MFGN.h`
-- `ThinkInk_270_Grayscale4_W3.h`
-- `ThinkInk_290_Grayscale4_EAAMFGN.h`
-- `ThinkInk_290_Grayscale4_T5.h`
-- `ThinkInk_420_Grayscale4_MFGN.h` (the one this PR adds)
-- `ThinkInk_420_Grayscale4_T2.h`
-- `ThinkInk_426_Grayscale4_GDEQ.h`
-
-If any of those use a different `setBlackBuffer`/`setColorBuffer` invert combination or a different `layer_colors` mapping, the bit-pair-to-level relationship is panel-specific and the LUT-side fix would need to be panel-by-panel.
+This repository can statically check the LUT length and block movement, but the
+actual e-paper greyscale result still needs hardware verification before the PR
+is marked ready.
